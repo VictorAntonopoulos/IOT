@@ -26,6 +26,11 @@ Protótipo funcional de um sistema de gerenciamento inteligente de motos, utiliz
 *   JSON (formato de dados)
 *   Dashboard em Flask + HTML/JS
 
+### Links:
+
+*   Pitch = https://www.youtube.com/watch?si=OhGFE0eqJH3WFoXn&v=tFLwiapUUiE&feature=youtu.be
+*   Demostração = 
+
 ## 🔧 Como Rodar o Projeto
 
 ### Clonar o repositório e criar ambiente virtual:
