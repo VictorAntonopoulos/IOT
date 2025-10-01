@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Dashboard Trackin - Socket.IO</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f4f6fb; margin:0; padding:20px; }
+    .top { display:flex; gap:20px; align-items:center; flex-wrap: wrap; }
+    .card { background:white; padding:16px; border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,0.06); }
+    #log { max-height: 420px; overflow:auto; margin-top:12px; }
+    .item { border-bottom:1px solid #eee; padding:8px 0; }
+    .green { color: #2e7d32 }
+    .red { color:#c62828 }
+    #map { height: 300px; width: 100%; margin-top: 20px; border-radius:10px; }
+    code { background:#f0f0f0; padding:2px 4px; border-radius:4px; display:inline-block; }
+  </style>
+</head>
+<body>
+  <h1>🏍️ Dashboard Trackin (Socket.IO)</h1>
+
+  <div class="top">
+    <div class="card">
+      <div>Total Leituras: <span id="total">0</span></div>
+      <div>Sucesso: <span id="success">0</span></div>
+      <div>Erro: <span id="error">0</span></div>
+    </div>
+    <div class="card" style="flex:1">
+      <canvas id="timeChart" width="400" height="150"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Últimas leituras</h3>
+    <div id="log"></div>
+  </div>
+
+  <div class="card">
+    <h3>Mapa das Motos</h3>
+    <div id="map"></div>
+  </div>
+
+<script>
+const SOCKET_URL = "http://localhost:5008"; 
+const socket = io(SOCKET_URL);
+
+const totalEl = document.getElementById('total');
+const successEl = document.getElementById('success');
+const errorEl = document.getElementById('error');
+const logEl = document.getElementById('log');
+
+let total = 0, success=0, error=0;
+let timeLabels = [], timeData = [];
+
+const ctx = document.getElementById('timeChart').getContext('2d');
+const timeChart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: timeLabels,
+    datasets: [{
+      label: 'Leituras',
+      data: timeData,
+      tension: 0.3,
+      fill: true,
+      backgroundColor: 'rgba(102,126,234,0.12)',
+      borderColor: '#667eea'
+    }]
+  },
+  options: { responsive: true, scales: { y: { beginAtZero:true } } }
+});
+
+// Mapa Leaflet
+const map = L.map('map').setView([-23.561414, -46.655881], 16);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+
+// Ícone de moto customizado
+const motoIcon = L.icon({
+  iconUrl: 'https://cdn-icons-png.flaticon.com/512/2972/2972123.png', 
+  iconSize: [32,32],
+  iconAnchor: [16,32],
+  popupAnchor: [0,-32]
+});
+
+const markers = {}; 
+
+function addLog(reading) {
+  const d = new Date(reading.timestamp);
+  const t = d.toLocaleTimeString();
+  const el = document.createElement('div');
+  el.className = 'item';
+  const color = reading.ok === false ? 'red' : 'green';
+  el.innerHTML = `<div><strong style="color:${color}">${reading.motoId || reading.rfid}</strong> — <small>${reading.sensor}</small></div>
+                  <div><code>${JSON.stringify(reading.value)}</code></div>
+                  <div><small>${t}</small></div>`;
+  logEl.prepend(el);
+  while (logEl.children.length > 100) logEl.removeChild(logEl.lastChild);
+}
+
+function updateCharts() {
+  const now = new Date();
+  const key = `${now.getHours()}:${String(now.getMinutes()).padStart(2,'0')}`;
+  const idx = timeLabels.indexOf(key);
+  if (idx === -1) {
+    timeLabels.push(key);
+    timeData.push(1);
+    if (timeLabels.length > 12) { timeLabels.shift(); timeData.shift(); }
+  } else {
+    timeData[idx] += 1;
+  }
+  timeChart.update();
+}
+
+function updateMap(reading) {
+  if(reading.sensor === "gps") {
+    const id = reading.motoId;
+    const lat = reading.value.latitude;
+    const lon = reading.value.longitude;
+    if(markers[id]) {
+      markers[id].setLatLng([lat, lon]);
+    } else {
+      markers[id] = L.marker([lat, lon], {icon: motoIcon}).addTo(map).bindPopup(id);
+    }
+  }
+}
+
+socket.on("connect", () => console.log("Conectado ao backend:", socket.id));
+
+socket.on("new_reading", (payload) => {
+  total += 1;
+  if(payload.ok === false) error += 1;
+  else success += 1;
+
+  totalEl.textContent = total;
+  successEl.textContent = success;
+  errorEl.textContent = error;
+
+  addLog(payload);
+  updateCharts();
+  updateMap(payload);
+});
+
+// fetch recentes no load
+fetch(`${SOCKET_URL}/api/telemetry/recent`).then(r => r.json()).then(arr => {
+  arr.reverse().slice(-20).forEach(it => {
+    it.ok = true;
+    addLog(it);
+    total += 1;
+    success += 1;
+  });
+  totalEl.textContent = total;
+  successEl.textContent = success;
+}).catch(e => console.log("Falha no fetch de recentes", e));
+</script>
+</body>
+</html>
